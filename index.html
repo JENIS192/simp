@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Shop</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#6b7280; --accent:#2563eb; --line:#e5e7eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111418; --card:#1b1f26; --text:#eceef1; --muted:#9aa3af; --accent:#60a5fa; --line:#2a303a; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; gap:12px; align-items:center; padding:14px 20px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; }
+  header h1 { font-size:1.2rem; margin:0; flex:0 0 auto; }
+  header input { flex:1; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); }
+  button { cursor:pointer; border:0; border-radius:8px; padding:9px 14px; background:var(--accent); color:#fff; font-size:.9rem; }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  main { max-width:1000px; margin:24px auto; padding:0 16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:6px; }
+  .emoji { font-size:3rem; text-align:center; }
+  .card h3 { margin:4px 0 0; font-size:1rem; } .card p { margin:0; color:var(--muted); font-size:.85rem; flex:1; }
+  .price { font-weight:700; }
+  aside { position:fixed; top:0; right:0; width:min(380px,100%); height:100%; background:var(--card); border-left:1px solid var(--line); padding:18px; transform:translateX(100%); transition:transform .25s; display:flex; flex-direction:column; gap:10px; overflow:auto; }
+  aside.open { transform:none; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:.9rem; }
+  .qty button { padding:2px 9px; }
+  input.f { width:100%; padding:9px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); margin-bottom:8px; }
+  .msg { padding:10px; border-radius:8px; font-size:.9rem; } .ok { background:#dcfce7; color:#166534; } .err { background:#fee2e2; color:#991b1b; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛍️ Simple Shop</h1>
+  <input id="search" placeholder="Search products…">
+  <button id="cartBtn">Cart (<span id="count">0</span>)</button>
+</header>
+<main><div id="products" class="grid"></div></main>
+
+<aside id="cart">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">Your cart</h2><button class="ghost" id="close">✕</button></div>
+  <div id="items"></div>
+  <div class="row"><strong>Total</strong><strong id="total">$0.00</strong></div>
+  <div id="checkout">
+    <input class="f" id="name" placeholder="Full name">
+    <input class="f" id="email" type="email" placeholder="Email">
+    <input class="f" id="address" placeholder="Shipping address">
+    <button id="place" style="width:100%">Place order</button>
+  </div>
+  <div id="msg"></div>
+</aside>
+
+<script>
+const $ = id => document.getElementById(id);
+const money = n => '$' + n.toFixed(2);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let products = [], cart = JSON.parse(localStorage.getItem('cart') || '{}'); // { id: {name, price, qty} }
+
+async function load(q = '') {
+  try {
+    const res = await fetch('/api/products?q=' + encodeURIComponent(q));
+    products = await res.json();
+    $('products').innerHTML = products.length ? products.map(p => `
+      <div class="card">
+        <div class="emoji">${esc(p.emoji)}</div>
+        <h3>${esc(p.name)}</h3><p>${esc(p.description)}</p>
+        <div class="price">${money(p.price)} <small style="color:var(--muted)">· ${p.stock} left</small></div>
+        <button data-id="${p._id}" ${p.stock < 1 ? 'disabled' : ''}>Add to cart</button>
+      </div>`).join('') : '<p>No products found.</p>';
+  } catch { $('products').innerHTML = '<p>Could not load products.</p>'; }
+}
+
+function save() { localStorage.setItem('cart', JSON.stringify(cart)); render(); }
+function render() {
+  const ids = Object.keys(cart);
+  $('count').textContent = ids.reduce((s, id) => s + cart[id].qty, 0);
+  $('items').innerHTML = ids.length ? ids.map(id => `
+    <div class="row"><span>${esc(cart[id].name)}<br><small>${money(cart[id].price)}</small></span>
+    <span class="qty"><button class="ghost" data-dec="${id}">−</button> ${cart[id].qty} <button class="ghost" data-inc="${id}">+</button></span></div>`).join('') : '<p>Your cart is empty.</p>';
+  $('total').textContent = money(ids.reduce((s, id) => s + cart[id].price * cart[id].qty, 0));
+  $('checkout').style.display = ids.length ? '' : 'none';
+}
+
+$('products').onclick = e => {
+  const id = e.target.dataset.id; if (!id) return;
+  const p = products.find(x => x._id === id);
+  cart[id] = cart[id] || { name: p.name, price: p.price, qty: 0 };
+  if (cart[id].qty < p.stock) cart[id].qty++;
+  save(); $('cart').classList.add('open');
+};
+$('items').onclick = e => {
+  const inc = e.target.dataset.inc, dec = e.target.dataset.dec;
+  if (inc) cart[inc].qty++;
+  if (dec && --cart[dec].qty <= 0) delete cart[dec];
+  if (inc || dec) save();
+};
+$('cartBtn').onclick = () => $('cart').classList.add('open');
+$('close').onclick = () => $('cart').classList.remove('open');
+let t; $('search').oninput = e => { clearTimeout(t); t = setTimeout(() => load(e.target.value), 250); };
+
+$('place').onclick = async () => {
+  const body = {
+    customer: { name: $('name').value.trim(), email: $('email').value.trim(), address: $('address').value.trim() },
+    items: Object.entries(cart).map(([id, c]) => ({ id, qty: c.qty }))
+  };
+  const res = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (res.ok) {
+    cart = {}; save(); load($('search').value);
+    $('msg').innerHTML = `<div class="msg ok">Order placed! Total ${money(data.total)}<br><small>ID: ${esc(data.orderId)}</small></div>`;
+  } else $('msg').innerHTML = `<div class="msg err">${esc(data.error)}</div>`;
+};
+
+render(); load();
+</script>
+</body>
+</html>
